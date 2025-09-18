@@ -2,7 +2,7 @@ name: ci-cd
 
 on:
   push:
-    branches: ["main"]
+    branches: ["master"]
 
 env:
   VPS_APP_DIR: /opt/mvp-anoname-bot
