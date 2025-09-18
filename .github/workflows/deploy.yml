@@ -63,7 +63,9 @@ jobs:
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             "echo ${{ secrets.GITHUB_TOKEN }} | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin && \
              sudo docker pull ghcr.io/${{ github.repository_owner }}/anonamebot:latest && \
+             sudo docker stop anonamebot || true && \
              sudo docker rm -f anonamebot || true && \
+             sudo lsof -ti:$APP_PORT | xargs -r sudo kill -9 || true && \
              sudo docker run -d --name anonamebot --restart=always --env-file ${{ env.VPS_APP_DIR }}/.env -p $APP_PORT:$APP_PORT ghcr.io/${{ github.repository_owner }}/anonamebot:latest"
 
       - name: Health check
