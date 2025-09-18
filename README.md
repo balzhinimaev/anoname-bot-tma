@@ -20,7 +20,7 @@ BOT_WEBHOOK_URL=https://your-domain.com
 TELEGRAM_WEBHOOK_PATH=/telegram/webhook/your-random-secret-path
 TELEGRAM_WEBHOOK_SECRET=your-strong-secret
 WEB_APP_URL=https://your-mini-app-url
-PORT=8080
+PORT=7777
 AUTO_SET_WEBHOOK=true
 API_BASE_URL=https://api.example.com
 BOT_BACKEND_SECRET=your-backend-secret
@@ -33,7 +33,7 @@ AB_SPLIT_A=50
 npm run dev
 ```
 
-Сервер поднимется на `http://localhost:8080`. Для prod:
+Сервер поднимется на `http://localhost:7777`. Для prod:
 
 ```bash
 npm run build && npm start
@@ -118,12 +118,13 @@ Content-Type: application/json
 - `API_BASE_URL` - URL API бэкенда
 - `BOT_BACKEND_SECRET` - секрет для API
 - `AB_SPLIT_A` - процент A/B тестов
+- `APP_PORT` - порт приложения (по умолчанию 7777)
 
 ### Мониторинг
 
 ```bash
 # Health check
-curl http://localhost:8080/healthz
+curl http://localhost:7777/healthz
 
 # Логи контейнера
 docker-compose logs -f anonamebot

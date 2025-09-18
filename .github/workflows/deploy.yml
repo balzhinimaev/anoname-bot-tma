@@ -52,20 +52,22 @@ jobs:
 
       - name: Create app directory and .env on VPS
         run: |
-          ENV_B64=$(printf "BOT_TOKEN=%s\nWEB_APP_URL=%s\nTELEGRAM_WEBHOOK_PATH=%s\nTELEGRAM_WEBHOOK_SECRET=%s\nBOT_WEBHOOK_URL=%s\nAUTO_SET_WEBHOOK=%s\nAPI_BASE_URL=%s\nBOT_BACKEND_SECRET=%s\nAB_SPLIT_A=%s\nPORT=8080\nNODE_ENV=production\n" "${{ secrets.BOT_TOKEN }}" "${{ secrets.WEB_APP_URL }}" "${{ secrets.TELEGRAM_WEBHOOK_PATH }}" "${{ secrets.TELEGRAM_WEBHOOK_SECRET }}" "${{ secrets.BOT_WEBHOOK_URL }}" "${{ secrets.AUTO_SET_WEBHOOK }}" "${{ secrets.API_BASE_URL }}" "${{ secrets.BOT_BACKEND_SECRET }}" "${{ secrets.AB_SPLIT_A }}" | base64 -w0)
+          ENV_B64=$(printf "BOT_TOKEN=%s\nWEB_APP_URL=%s\nTELEGRAM_WEBHOOK_PATH=%s\nTELEGRAM_WEBHOOK_SECRET=%s\nBOT_WEBHOOK_URL=%s\nAUTO_SET_WEBHOOK=%s\nAPI_BASE_URL=%s\nBOT_BACKEND_SECRET=%s\nAB_SPLIT_A=%s\nPORT=%s\nNODE_ENV=production\n" "${{ secrets.BOT_TOKEN }}" "${{ secrets.WEB_APP_URL }}" "${{ secrets.TELEGRAM_WEBHOOK_PATH }}" "${{ secrets.TELEGRAM_WEBHOOK_SECRET }}" "${{ secrets.BOT_WEBHOOK_URL }}" "${{ secrets.AUTO_SET_WEBHOOK }}" "${{ secrets.API_BASE_URL }}" "${{ secrets.BOT_BACKEND_SECRET }}" "${{ secrets.AB_SPLIT_A }}" "${{ secrets.APP_PORT || '7777' }}" | base64 -w0)
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "sudo mkdir -p ${{ env.VPS_APP_DIR }} && echo $ENV_B64 | base64 -d | sudo tee ${{ env.VPS_APP_DIR }}/.env > /dev/null"
 
       - name: Log in to GHCR on VPS and run container
         run: |
+          APP_PORT="${{ secrets.APP_PORT || '7777' }}"
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            'echo ${{ secrets.GITHUB_TOKEN }} | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin && \
+            "echo ${{ secrets.GITHUB_TOKEN }} | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin && \
              sudo docker pull ghcr.io/${{ github.repository_owner }}/anonamebot:latest && \
              sudo docker rm -f anonamebot || true && \
-             sudo docker run -d --name anonamebot --restart=always --env-file ${{ env.VPS_APP_DIR }}/.env -p 8080:8080 ghcr.io/${{ github.repository_owner }}/anonamebot:latest'
+             sudo docker run -d --name anonamebot --restart=always --env-file ${{ env.VPS_APP_DIR }}/.env -p $APP_PORT:$APP_PORT ghcr.io/${{ github.repository_owner }}/anonamebot:latest"
 
       - name: Health check
         run: |
           echo "Waiting for application to start..."
           sleep 30
+          APP_PORT="${{ secrets.APP_PORT || '7777' }}"
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            'if curl -f http://localhost:8080/healthz; then echo "✅ Health check passed"; else echo "❌ Health check failed"; exit 1; fi'
+            "if curl -f http://localhost:$APP_PORT/healthz; then echo '✅ Health check passed'; else echo '❌ Health check failed'; exit 1; fi"

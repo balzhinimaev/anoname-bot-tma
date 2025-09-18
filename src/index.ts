@@ -9,7 +9,7 @@ const TELEGRAM_WEBHOOK_PATH = process.env.TELEGRAM_WEBHOOK_PATH || '/telegram/we
 const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 const BOT_WEBHOOK_URL = process.env.BOT_WEBHOOK_URL || '';
 const AUTO_SET_WEBHOOK = (process.env.AUTO_SET_WEBHOOK || 'false').toLowerCase() === 'true';
-const PORT = Number(process.env.PORT || 8080);
+const PORT = Number(process.env.PORT || 7777);
 const API_BASE_URL = process.env.API_BASE_URL || '';
 const BOT_BACKEND_SECRET = process.env.BOT_BACKEND_SECRET || '';
 const AB_SPLIT_A = Math.max(0, Math.min(100, Number(process.env.AB_SPLIT_A ?? '50')));
