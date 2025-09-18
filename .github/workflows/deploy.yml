@@ -1,248 +1,71 @@
-name: Deploy to VPS
+name: ci-cd
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+    branches: ["main"]
 
 env:
-  DOCKER_IMAGE_NAME: anonamebot
   VPS_APP_DIR: /opt/mvp-anoname-bot
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+      packages: write
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: false
-        tags: ${{ env.DOCKER_IMAGE_NAME }}:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/anonamebot:latest
+            ghcr.io/${{ github.repository_owner }}/anonamebot:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-    - name: Test Docker image
-      run: |
-        docker run --rm -d --name test-container -p 8080:8080 ${{ env.DOCKER_IMAGE_NAME }}:latest
-        sleep 10
-        curl -f http://localhost:8080/healthz || exit 1
-        docker stop test-container
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Install ssh client
+        run: sudo apt-get update && sudo apt-get install -y openssh-client
 
-    - name: Deploy to VPS
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USER }}
-        key: ${{ secrets.VPS_SSH_KEY }}
-        port: ${{ secrets.VPS_PORT || 22 }}
-        script: |
-          # Create application directory
-          sudo mkdir -p ${{ env.VPS_APP_DIR }}
-          cd ${{ env.VPS_APP_DIR }}
-          
-          # Create .env file from secrets
-          cat > .env << 'EOF'
-          BOT_TOKEN=${{ secrets.BOT_TOKEN }}
-          WEB_APP_URL=${{ secrets.WEB_APP_URL }}
-          TELEGRAM_WEBHOOK_PATH=${{ secrets.TELEGRAM_WEBHOOK_PATH }}
-          TELEGRAM_WEBHOOK_SECRET=${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-          BOT_WEBHOOK_URL=${{ secrets.BOT_WEBHOOK_URL }}
-          AUTO_SET_WEBHOOK=${{ secrets.AUTO_SET_WEBHOOK }}
-          API_BASE_URL=${{ secrets.API_BASE_URL }}
-          BOT_BACKEND_SECRET=${{ secrets.BOT_BACKEND_SECRET }}
-          AB_SPLIT_A=${{ secrets.AB_SPLIT_A }}
-          PORT=8080
-          NODE_ENV=production
-          EOF
-          
-          # Create logs directory
-          sudo mkdir -p logs
-          sudo chown -R $USER:$USER logs
-          
-          # Create docker-compose.yml
-          cat > docker-compose.yml << 'EOF'
-          version: '3.8'
-          
-          services:
-            anonamebot:
-              image: ${{ env.DOCKER_IMAGE_NAME }}:latest
-              container_name: anonamebot
-              restart: unless-stopped
-              ports:
-                - "8080:8080"
-              env_file:
-                - .env
-              environment:
-                - NODE_ENV=production
-              volumes:
-                - ./logs:/app/logs
-              healthcheck:
-                test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/healthz', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
-                interval: 30s
-                timeout: 10s
-                retries: 3
-                start_period: 40s
-              deploy:
-                resources:
-                  limits:
-                    memory: 512M
-                    cpus: '0.5'
-                  reservations:
-                    memory: 256M
-                    cpus: '0.25'
-              security_opt:
-                - no-new-privileges:true
-              read_only: true
-              tmpfs:
-                - /tmp
-                - /var/run
-          EOF
-          
-          # Stop existing container if running
-          docker-compose down || true
-          
-          # Pull latest image (will be built locally and pushed to registry in future)
-          # For now, we'll build on VPS
-          echo "Building image on VPS..."
-          
-          # Create Dockerfile on VPS
-          cat > Dockerfile << 'EOF'
-          FROM node:18-alpine
-          WORKDIR /app
-          COPY package*.json ./
-          RUN npm ci --only=production && npm cache clean --force
-          COPY src/ ./src/
-          COPY tsconfig.json ./
-          RUN npm install -g typescript
-          RUN npm run build
-          RUN npm uninstall -g typescript && \
-              rm -rf node_modules && \
-              npm ci --only=production && \
-              npm cache clean --force
-          RUN addgroup -g 1001 -S nodejs && \
-              adduser -S nodejs -u 1001
-          RUN chown -R nodejs:nodejs /app
-          USER nodejs
-          EXPOSE 8080
-          HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-            CMD node -e "require('http').get('http://localhost:8080/healthz', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
-          CMD ["npm", "start"]
-          EOF
-          
-          # Create package.json
-          cat > package.json << 'EOF'
-          {
-            "name": "anonamebot",
-            "version": "1.0.0",
-            "private": true,
-            "description": "Minimal production-ready Telegram bot with webhook (Telegraf + Express + TypeScript + dotenv).",
-            "main": "dist/index.js",
-            "scripts": {
-              "dev": "tsx watch src/index.ts",
-              "build": "tsc -p tsconfig.json",
-              "start": "node dist/index.js",
-              "typecheck": "tsc -p tsconfig.json --noEmit"
-            },
-            "engines": {
-              "node": ">=18"
-            },
-            "dependencies": {
-              "dotenv": "^16.4.5",
-              "express": "^4.19.2",
-              "telegraf": "^4.16.3"
-            },
-            "devDependencies": {
-              "@types/express": "^5.0.3",
-              "@types/node": "^20.12.7",
-              "tsx": "^4.15.7",
-              "typescript": "^5.4.5"
-            }
-          }
-          EOF
-          
-          # Create tsconfig.json
-          cat > tsconfig.json << 'EOF'
-          {
-            "compilerOptions": {
-              "target": "ES2020",
-              "module": "commonjs",
-              "lib": ["ES2020"],
-              "outDir": "./dist",
-              "rootDir": "./src",
-              "strict": true,
-              "esModuleInterop": true,
-              "skipLibCheck": true,
-              "forceConsistentCasingInFileNames": true,
-              "resolveJsonModule": true,
-              "declaration": true,
-              "declarationMap": true,
-              "sourceMap": true
-            },
-            "include": ["src/**/*"],
-            "exclude": ["node_modules", "dist"]
-          }
-          EOF
-          
-          # Create src directory and copy source files
-          mkdir -p src
-          
-          # Note: In a real scenario, you would copy the source files here
-          # For now, we'll create a placeholder that will be replaced by the actual deployment
+      - name: Add SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
 
-    - name: Copy source files to VPS
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USER }}
-        key: ${{ secrets.VPS_SSH_KEY }}
-        port: ${{ secrets.VPS_PORT || 22 }}
-        source: "src/"
-        target: "${{ env.VPS_APP_DIR }}/src/"
-        strip_components: 1
+      - name: Create app directory and .env on VPS
+        run: |
+          ENV_B64=$(printf "BOT_TOKEN=%s\nWEB_APP_URL=%s\nTELEGRAM_WEBHOOK_PATH=%s\nTELEGRAM_WEBHOOK_SECRET=%s\nBOT_WEBHOOK_URL=%s\nAUTO_SET_WEBHOOK=%s\nAPI_BASE_URL=%s\nBOT_BACKEND_SECRET=%s\nAB_SPLIT_A=%s\nPORT=8080\nNODE_ENV=production\n" "${{ secrets.BOT_TOKEN }}" "${{ secrets.WEB_APP_URL }}" "${{ secrets.TELEGRAM_WEBHOOK_PATH }}" "${{ secrets.TELEGRAM_WEBHOOK_SECRET }}" "${{ secrets.BOT_WEBHOOK_URL }}" "${{ secrets.AUTO_SET_WEBHOOK }}" "${{ secrets.API_BASE_URL }}" "${{ secrets.BOT_BACKEND_SECRET }}" "${{ secrets.AB_SPLIT_A }}" | base64 -w0)
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "sudo mkdir -p ${{ env.VPS_APP_DIR }} && echo $ENV_B64 | base64 -d | sudo tee ${{ env.VPS_APP_DIR }}/.env > /dev/null"
 
-    - name: Start application on VPS
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USER }}
-        key: ${{ secrets.VPS_SSH_KEY }}
-        port: ${{ secrets.VPS_PORT || 22 }}
-        script: |
-          cd ${{ env.VPS_APP_DIR }}
-          
-          # Build and start the application
-          docker-compose build
-          docker-compose up -d
-          
-          # Wait for health check
+      - name: Log in to GHCR on VPS and run container
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            'echo ${{ secrets.GITHUB_TOKEN }} | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin && \
+             sudo docker pull ghcr.io/${{ github.repository_owner }}/anonamebot:latest && \
+             sudo docker rm -f anonamebot || true && \
+             sudo docker run -d --name anonamebot --restart=always --env-file ${{ env.VPS_APP_DIR }}/.env -p 8080:8080 ghcr.io/${{ github.repository_owner }}/anonamebot:latest'
+
+      - name: Health check
+        run: |
           echo "Waiting for application to start..."
           sleep 30
-          
-          # Check if container is running
-          if docker-compose ps | grep -q "Up"; then
-            echo "✅ Application deployed successfully!"
-            docker-compose logs --tail=20
-          else
-            echo "❌ Application failed to start"
-            docker-compose logs
-            exit 1
-          fi
-
-    - name: Health check
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      run: |
-        echo "Performing health check..."
-        # Add health check URL if available
-        # curl -f ${{ secrets.BOT_WEBHOOK_URL }}/healthz || echo "Health check failed"
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            'if curl -f http://localhost:8080/healthz; then echo "✅ Health check passed"; else echo "❌ Health check failed"; exit 1; fi'

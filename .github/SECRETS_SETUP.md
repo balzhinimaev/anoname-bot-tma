@@ -7,19 +7,22 @@
 1. **VPS_HOST** - IP адрес или домен VPS сервера
 2. **VPS_USER** - имя пользователя для SSH подключения (обычно root или ubuntu)
 3. **VPS_SSH_KEY** - приватный SSH ключ для подключения к VPS
-4. **VPS_PORT** - SSH порт (обычно 22)
 
 ## Bot Configuration Secrets
 
-5. **BOT_TOKEN** - токен Telegram бота от @BotFather
-6. **WEB_APP_URL** - URL мини-приложения
-7. **TELEGRAM_WEBHOOK_PATH** - путь для webhook (например: /telegram/webhook)
-8. **TELEGRAM_WEBHOOK_SECRET** - секретный токен для webhook
-9. **BOT_WEBHOOK_URL** - полный URL для webhook (https://yourdomain.com/telegram/webhook)
-10. **AUTO_SET_WEBHOOK** - автоматическая установка webhook (true/false)
-11. **API_BASE_URL** - базовый URL API бэкенда
-12. **BOT_BACKEND_SECRET** - секретный ключ для API бэкенда
-13. **AB_SPLIT_A** - процент для A/B тестирования (0-100)
+4. **BOT_TOKEN** - токен Telegram бота от @BotFather
+5. **WEB_APP_URL** - URL мини-приложения
+6. **TELEGRAM_WEBHOOK_PATH** - путь для webhook (например: /telegram/webhook)
+7. **TELEGRAM_WEBHOOK_SECRET** - секретный токен для webhook
+8. **BOT_WEBHOOK_URL** - полный URL для webhook (https://yourdomain.com/telegram/webhook)
+9. **AUTO_SET_WEBHOOK** - автоматическая установка webhook (true/false)
+10. **API_BASE_URL** - базовый URL API бэкенда
+11. **BOT_BACKEND_SECRET** - секретный ключ для API бэкенда
+12. **AB_SPLIT_A** - процент для A/B тестирования (0-100)
+
+## Автоматические секреты
+
+- **GITHUB_TOKEN** - автоматически предоставляется GitHub Actions
 
 ## Как добавить секреты:
 
