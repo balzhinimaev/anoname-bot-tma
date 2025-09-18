@@ -103,18 +103,20 @@ Content-Type: application/json
 
 Настройте секреты в GitHub Settings → Secrets and variables → Actions:
 
-**VPS подключение:**
+**VPS подключение (ОБЯЗАТЕЛЬНО):**
 - `VPS_HOST` - IP/домен VPS
 - `VPS_USER` - пользователь SSH  
 - `VPS_SSH_KEY` - приватный SSH ключ
 
-**Переменные бота:**
+**Переменные бота (ОБЯЗАТЕЛЬНО):**
 - `BOT_TOKEN` - токен Telegram бота
-- `WEB_APP_URL` - URL мини-приложения
 - `TELEGRAM_WEBHOOK_PATH` - путь webhook
 - `TELEGRAM_WEBHOOK_SECRET` - секрет webhook
 - `BOT_WEBHOOK_URL` - полный URL webhook
 - `AUTO_SET_WEBHOOK` - автоустановка webhook
+
+**Опциональные переменные:**
+- `WEB_APP_URL` - URL мини-приложения
 - `API_BASE_URL` - URL API бэкенда
 - `BOT_BACKEND_SECRET` - секрет для API
 - `AB_SPLIT_A` - процент A/B тестов
