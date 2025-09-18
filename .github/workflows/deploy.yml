@@ -60,6 +60,7 @@ jobs:
       - name: Log in to GHCR on VPS and run container
         run: |
           APP_PORT="${{ secrets.APP_PORT || '7777' }}"
+          echo "Using port: $APP_PORT"
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             "echo ${{ secrets.GITHUB_TOKEN }} | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin && \
              sudo docker pull ghcr.io/${{ github.repository_owner }}/anonamebot:latest && \
@@ -73,5 +74,6 @@ jobs:
           echo "Waiting for application to start..."
           sleep 30
           APP_PORT="${{ secrets.APP_PORT || '7777' }}"
+          echo "Health checking port: $APP_PORT"
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             "if curl -f http://localhost:$APP_PORT/healthz; then echo '✅ Health check passed'; else echo '❌ Health check failed'; exit 1; fi"
