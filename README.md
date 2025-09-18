@@ -1,4 +1,6 @@
-# Telegram Bot (Telegraf + Express, webhook-only)
+# ANONAMEBOT
+
+Telegram бот с автоматическим CI/CD деплоем на VPS.
 
 Минимальный, продакшен-готовый телеграм-бот на TypeScript с Telegraf, работает только через webhook (без long polling). Включает Express, dotenv, healthcheck и graceful shutdown.
 
@@ -85,6 +87,53 @@ Content-Type: application/json
 ## BotFather (опционально)
 
 - Чтобы кнопка Mini App была в меню чата, в BotFather настройте: Menu Button → Web App → укажите тот же `WEB_APP_URL`.
+
+## 🚀 CI/CD Деплой
+
+### Автоматический деплой на VPS
+
+При пуше в `main` ветку автоматически:
+1. Собирается Docker образ
+2. Тестируется приложение  
+3. Подключается к VPS по SSH
+4. Создаётся папка `/opt/mvp-anoname-bot`
+5. Записывается `.env` файл из GitHub Secrets
+6. Копируется исходный код
+7. Запускается Docker контейнер
+
+### Настройка GitHub Secrets
+
+Настройте секреты в GitHub Settings → Secrets and variables → Actions:
+
+**VPS подключение:**
+- `VPS_HOST` - IP/домен VPS
+- `VPS_USER` - пользователь SSH  
+- `VPS_SSH_KEY` - приватный SSH ключ
+- `VPS_PORT` - SSH порт (по умолчанию 22)
+
+**Переменные бота:**
+- `BOT_TOKEN` - токен Telegram бота
+- `WEB_APP_URL` - URL мини-приложения
+- `TELEGRAM_WEBHOOK_PATH` - путь webhook
+- `TELEGRAM_WEBHOOK_SECRET` - секрет webhook
+- `BOT_WEBHOOK_URL` - полный URL webhook
+- `AUTO_SET_WEBHOOK` - автоустановка webhook
+- `API_BASE_URL` - URL API бэкенда
+- `BOT_BACKEND_SECRET` - секрет для API
+- `AB_SPLIT_A` - процент A/B тестов
+
+### Мониторинг
+
+```bash
+# Health check
+curl http://localhost:8080/healthz
+
+# Логи контейнера
+docker-compose logs -f anonamebot
+
+# Комплексная проверка
+./scripts/health-check.sh
+```
 
 ## Примечания
 
