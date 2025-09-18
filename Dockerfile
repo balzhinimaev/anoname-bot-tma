@@ -7,24 +7,18 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (production only)
-RUN npm ci --only=production && npm cache clean --force
+# Install all dependencies (including dev for build)
+RUN npm ci && npm cache clean --force
 
 # Copy source code
 COPY src/ ./src/
 COPY tsconfig.json ./
 
-# Install TypeScript globally for build
-RUN npm install -g typescript
-
 # Build the application
 RUN npm run build
 
-# Remove dev dependencies and TypeScript after build
-RUN npm uninstall -g typescript && \
-    rm -rf node_modules && \
-    npm ci --only=production && \
-    npm cache clean --force
+# Remove dev dependencies after build
+RUN npm ci --only=production && npm cache clean --force
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
