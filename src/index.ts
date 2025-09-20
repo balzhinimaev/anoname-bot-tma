@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { Telegraf, Context, Markup } from 'telegraf';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 // Environment variables
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -13,6 +15,10 @@ const PORT = Number(process.env.PORT || 7777);
 const API_BASE_URL = process.env.API_BASE_URL || '';
 const BOT_BACKEND_SECRET = process.env.BOT_BACKEND_SECRET || '';
 const AB_SPLIT_A = Math.max(0, Math.min(100, Number(process.env.AB_SPLIT_A ?? '50')));
+const ENABLE_ANALYTICS = (process.env.ENABLE_ANALYTICS || 'true').toLowerCase() === 'true';
+
+// User IDs file path
+const USER_IDS_FILE = path.join(process.cwd(), 'user_ids.txt');
 
 if (!BOT_TOKEN) {
   console.error('[startup] BOT_TOKEN не задан. Укажите BOT_TOKEN в .env');
@@ -20,6 +26,42 @@ if (!BOT_TOKEN) {
 
 // Create bot instance (no bot.launch())
 const bot = new Telegraf<Context>(BOT_TOKEN || '');
+
+// User ID management functions
+async function readUserIds(): Promise<Set<string>> {
+  try {
+    const content = await fs.readFile(USER_IDS_FILE, 'utf-8');
+    const ids = content.trim().split('\n').filter(id => id.trim() !== '');
+    return new Set(ids);
+  } catch (error) {
+    // File doesn't exist or can't be read, return empty set
+    return new Set();
+  }
+}
+
+async function writeUserIds(userIds: Set<string>): Promise<void> {
+  try {
+    const content = Array.from(userIds).join('\n') + '\n';
+    await fs.writeFile(USER_IDS_FILE, content, 'utf-8');
+  } catch (error) {
+    console.error('[user_ids] Ошибка записи файла пользователей:', error instanceof Error ? error.message : error);
+  }
+}
+
+async function addUserId(userId: string): Promise<void> {
+  try {
+    const existingIds = await readUserIds();
+    if (!existingIds.has(userId)) {
+      existingIds.add(userId);
+      await writeUserIds(existingIds);
+      console.log(`[user_ids] Добавлен новый пользователь: ${userId}`);
+    } else {
+      console.log(`[user_ids] Пользователь уже существует: ${userId}`);
+    }
+  } catch (error) {
+    console.error('[user_ids] Ошибка добавления пользователя:', error instanceof Error ? error.message : error);
+  }
+}
 
 function fnv1aHash32(input: string): number {
   let hash = 0x811c9dc5;
@@ -70,7 +112,7 @@ async function postJsonWithRetry(url: string, body: unknown, headers: Record<str
       });
       if (response.ok) return;
       if ([400, 401, 403].includes(response.status)) {
-        console.warn(`[analytics] Неуспешный статус без ретраев: ${response.status}`);
+        console.warn(`[analytics] Неуспешный статус без ретраев: ${response.status} (URL: ${url})`);
         return;
       }
       if (attempt < maxRetries) {
@@ -94,9 +136,18 @@ async function postJsonWithRetry(url: string, body: unknown, headers: Record<str
 }
 
 async function postAnalyticsEvent(name: string, telegramId?: number | string, props?: Record<string, unknown>): Promise<void> {
+  if (!ENABLE_ANALYTICS) {
+    return;
+  }
+  
   if (!API_BASE_URL || !BOT_BACKEND_SECRET) {
     // Тихо пропускаем, чтобы не засорять логи в dev
     return;
+  }
+  
+  // Log configuration for debugging
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[analytics] Отправка события: ${name} (API: ${API_BASE_URL})`);
   }
   const endpoint = `${API_BASE_URL.replace(/\/+$/, '')}/api/analytics/bot-event`;
   const payload: AnalyticsEvent = { name, telegramId, props };
@@ -140,6 +191,11 @@ bot.start(async (ctx) => {
   const userId = ctx.from?.id;
   const variant = assignVariant(userId ?? '0', AB_SPLIT_A);
   const { referralCode, campaign } = parseStartPayload(payload);
+
+  // Save user ID to file for future broadcast
+  if (userId) {
+    void addUserId(String(userId));
+  }
 
   const text = 'Привет! Хочешь найти собеседника?\n' + (WEB_APP_URL ? ' Открой мини-приложение по кнопке ниже.' : ' URL мини-приложения не настроен.');
   if (WEB_APP_URL) {
@@ -260,6 +316,21 @@ app.use(express.json({ limit: '256kb' }));
 // Health endpoint
 app.get('/healthz', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
+});
+
+// Get user IDs for broadcast
+app.get('/users', requireBackendSecret, async (_req: Request, res: Response) => {
+  try {
+    const userIds = await readUserIds();
+    const userIdsArray = Array.from(userIds);
+    res.status(200).json({ 
+      count: userIdsArray.length,
+      userIds: userIdsArray 
+    });
+  } catch (error) {
+    console.error('[users] Ошибка получения списка пользователей:', error instanceof Error ? error.message : error);
+    res.status(500).json({ error: 'Internal error' });
+  }
 });
 
 // Middleware to verify Telegram secret token on webhook path
