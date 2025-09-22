@@ -6,6 +6,8 @@ import path from 'path';
 
 // Environment variables
 const BOT_TOKEN = process.env.BOT_TOKEN;
+const ADMIN = process.env.ADMIN;
+const FILE_ID = process.env.FILE_ID;
 const WEB_APP_URL = process.env.WEB_APP_URL || '';
 const TELEGRAM_WEBHOOK_PATH = process.env.TELEGRAM_WEBHOOK_PATH || '/telegram/webhook';
 const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
@@ -24,8 +26,18 @@ if (!BOT_TOKEN) {
   console.error('[startup] BOT_TOKEN не задан. Укажите BOT_TOKEN в .env');
 }
 
+// Log API configuration for debugging
+console.log(`[startup] API_BASE_URL: ${API_BASE_URL || 'не задан'}`);
+console.log(`[startup] BOT_BACKEND_SECRET: ${BOT_BACKEND_SECRET ? 'задан' : 'не задан'}`);
+
 // Create bot instance (no bot.launch())
 const bot = new Telegraf<Context>(BOT_TOKEN || '');
+
+// Admin check function
+function isAdmin(userId: number | string | undefined): boolean {
+  if (!ADMIN || !userId) return false;
+  return String(userId) === String(ADMIN);
+}
 
 // User ID management functions
 async function readUserIds(): Promise<Set<string>> {
@@ -63,6 +75,84 @@ async function addUserId(userId: string): Promise<void> {
   }
 }
 
+// Broadcast function
+async function sendBroadcast(message: string, fileId?: string): Promise<{ success: number; failed: number; errors: string[] }> {
+  const userIds = await readUserIds();
+  const results = { success: 0, failed: 0, errors: [] as string[] };
+  
+  console.log(`[broadcast] Начинаю рассылку для ${userIds.size} пользователей`);
+  
+  for (const userId of userIds) {
+    try {
+      if (fileId) {
+        // Send photo with caption
+        await bot.telegram.sendPhoto(userId, fileId, {
+          caption: message,
+          parse_mode: 'HTML'
+        });
+      } else {
+        // Send text only
+        await bot.telegram.sendMessage(userId, message, {
+          parse_mode: 'HTML'
+        });
+      }
+      results.success++;
+      console.log(`[broadcast] Успешно отправлено пользователю ${userId}`);
+    } catch (error) {
+      results.failed++;
+      const errorMsg = `User ${userId}: ${error instanceof Error ? error.message : error}`;
+      results.errors.push(errorMsg);
+      console.error(`[broadcast] Ошибка отправки пользователю ${userId}:`, error);
+    }
+    
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  console.log(`[broadcast] Рассылка завершена. Успешно: ${results.success}, Ошибок: ${results.failed}`);
+  return results;
+}
+
+// Broadcast function with keyboard
+async function sendBroadcastWithKeyboard(message: string, fileId?: string, keyboard?: any): Promise<{ success: number; failed: number; errors: string[] }> {
+  const userIds = await readUserIds();
+  const results = { success: 0, failed: 0, errors: [] as string[] };
+  
+  console.log(`[broadcast] Начинаю рассылку с кнопками для ${userIds.size} пользователей`);
+  
+  for (const userId of userIds) {
+    try {
+      if (fileId) {
+        // Send photo with caption and keyboard
+        await bot.telegram.sendPhoto(userId, fileId, {
+          caption: message,
+          parse_mode: 'HTML',
+          reply_markup: keyboard?.reply_markup
+        });
+      } else {
+        // Send text with keyboard
+        await bot.telegram.sendMessage(userId, message, {
+          parse_mode: 'HTML',
+          reply_markup: keyboard?.reply_markup
+        });
+      }
+      results.success++;
+      console.log(`[broadcast] Успешно отправлено пользователю ${userId}`);
+    } catch (error) {
+      results.failed++;
+      const errorMsg = `User ${userId}: ${error instanceof Error ? error.message : error}`;
+      results.errors.push(errorMsg);
+      console.error(`[broadcast] Ошибка отправки пользователю ${userId}:`, error);
+    }
+    
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  console.log(`[broadcast] Рассылка завершена. Успешно: ${results.success}, Ошибок: ${results.failed}`);
+  return results;
+}
+
 function fnv1aHash32(input: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
@@ -83,6 +173,33 @@ function appendQueryParam(baseUrl: string, key: string, value: string): string {
   const hasQuery = baseUrl.includes('?');
   const joiner = hasQuery ? '&' : '?';
   return `${baseUrl}${joiner}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+// Get next Thursday date and time
+function getNextThursday(): string {
+  const now = new Date();
+  const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 4 = Thursday
+  const daysUntilThursday = (4 - currentDay + 7) % 7; // Days until next Thursday (4)
+  
+  // If it's Thursday and before 20:00, use today, otherwise next Thursday
+  const isThursday = currentDay === 4;
+  const isBefore8PM = now.getHours() < 20;
+  const daysToAdd = (isThursday && isBefore8PM) ? 0 : (daysUntilThursday === 0 ? 7 : daysUntilThursday);
+  
+  const nextThursday = new Date(now);
+  nextThursday.setDate(now.getDate() + daysToAdd);
+  nextThursday.setHours(20, 0, 0, 0); // Set to 20:00
+  
+  // Format date in Russian
+  const options: Intl.DateTimeFormatOptions = {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit'
+  };
+  
+  return nextThursday.toLocaleDateString('ru-RU', options);
 }
 
 function parseStartPayload(payload?: string): { referralCode?: string; campaign?: string } {
@@ -181,6 +298,54 @@ async function notifyStarsPaymentSuccess(
   }
 }
 
+// Get prelaunch stats for available spots
+async function getPrelaunchStats(telegramId: number | string): Promise<{ totalCount: number; timestamp: string } | null> {
+  if (!API_BASE_URL || !BOT_BACKEND_SECRET) {
+    console.log('[prelaunch_stats] API_BASE_URL или BOT_BACKEND_SECRET не настроены');
+    return null;
+  }
+  
+  const endpoint = `${API_BASE_URL.replace(
+    /\/+$/,
+    ""
+  )}/rest_api/api/telegram/prelaunch/stats?telegramId=${telegramId}`;
+  console.log(`[prelaunch_stats] Запрос к: ${endpoint}`);
+  
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { 
+        'X-API-Key': BOT_BACKEND_SECRET,
+        'x-bot-secret': BOT_BACKEND_SECRET,
+        'Content-Type': 'application/json'
+      },
+    });
+    
+    console.log(`[prelaunch_stats] Статус ответа: ${response.status}`);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn(`[prelaunch_stats] Неуспешный статус: ${response.status}, ответ: ${errorText.substring(0, 200)}...`);
+      return null;
+    }
+    
+    const responseText = await response.text();
+    console.log(`[prelaunch_stats] Ответ: ${responseText.substring(0, 200)}...`);
+    
+    // Check if response is HTML (error page)
+    if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
+      console.warn('[prelaunch_stats] Получен HTML вместо JSON, возможно неправильный URL');
+      return null;
+    }
+    
+    const data = JSON.parse(responseText);
+    return data;
+  } catch (err) {
+    console.error('[prelaunch_stats] Ошибка получения статистики:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // Commands
 bot.start(async (ctx) => {
   const payload = ctx.startPayload;
@@ -197,19 +362,65 @@ bot.start(async (ctx) => {
     void addUserId(String(userId));
   }
 
-  const text = 'Привет! Хочешь найти собеседника?\n' + (WEB_APP_URL ? ' Открой мини-приложение по кнопке ниже.' : ' URL мини-приложения не настроен.');
+  // Get dynamic stats for available spots
+  const stats = await getPrelaunchStats(userId || 0);
+  const availableSpots = stats?.totalCount || 47; // fallback to 47 if API fails
+  const totalSpots = 200;
+  
+  console.log(`[start] Статистика мест для пользователя ${userId}: ${availableSpots} из ${totalSpots} (API: ${stats ? 'успешно' : 'ошибка'})`);
+
+  const text = `🔥 <b>ДОБРО ПОЖАЛОВАТЬ В ЭЛИТНЫЙ КЛУБ!</b> 🔥
+
+Ты попал в <b>закрытое сообщество</b> для избранных! 
+
+💎 <b>ЧТО ТЕБЯ ЖДЕТ:</b>
+
+🎭 <b>100% АНОНИМНОСТЬ</b> — общайся без страха, никто не узнает твою личность
+
+⚡ <b>МГНОВЕННЫЕ ЗНАКОМСТВА</b> — находи собеседников за секунды, а не месяцы
+
+💰 <b>ЗАРАБАТЫВАЙ РЕАЛЬНЫЕ ДЕНЬГИ</b> — получай до $50 в неделю просто за общение!
+
+🏆 <b>VIP СТАТУС</b> — чем активнее ты, тем больше привилегий и дохода
+
+⏰ <b>ВНИМАНИЕ!</b> Мест осталось всего <b>${availableSpots} из ${totalSpots}</b> — мы закроем прием новых участников!
+
+<b>Не упусти свой шанс попасть в элитное сообщество!</b> 👇`;
+
   if (WEB_APP_URL) {
     const urlWithExp = appendQueryParam(WEB_APP_URL, 'exp', variant);
     const urlWithParams = referralCode ? appendQueryParam(urlWithExp, 'ref', referralCode) : urlWithExp;
     const keyboard = Markup.inlineKeyboard([
       [
-        Markup.button.webApp('Открыть приложение', urlWithParams)
-        // Markup.button.callback('Открыть (лог)', `tma_click:${variant}`),
+        Markup.button.webApp('🚀 Встать в очередь', urlWithParams)
       ],
+      [
+        Markup.button.callback('ℹ️ Узнать, как работает рейтинг', 'rating_info')
+      ]
     ]).reply_markup;
-    await ctx.reply(text, { reply_markup: keyboard, parse_mode: 'HTML' });
+    
+    if (FILE_ID) {
+      // Send photo with caption and keyboard
+      await ctx.replyWithPhoto(FILE_ID, {
+        caption: text,
+        parse_mode: 'HTML',
+        reply_markup: keyboard
+      });
+    } else {
+      // Send text with keyboard if no photo
+      await ctx.reply(text, { reply_markup: keyboard, parse_mode: 'HTML' });
+    }
   } else {
-    await ctx.reply(text);
+    if (FILE_ID) {
+      // Send photo with caption only
+      await ctx.replyWithPhoto(FILE_ID, {
+        caption: text,
+        parse_mode: 'HTML'
+      });
+    } else {
+      // Send text only
+      await ctx.reply(text, { parse_mode: 'HTML' });
+    }
   }
 
   // Fire-and-forget аналитика
@@ -222,15 +433,153 @@ bot.start(async (ctx) => {
 });
 
 bot.help(async (ctx) => {
-  await ctx.reply('Доступные команды:\n/start — приветствие и кнопка WebApp\n/help — эта справка');
+  await ctx.reply('Доступные команды:\n/start — приветствие и кнопка WebApp\n/rating — информация о рейтинговой системе\n/help — эта справка');
+});
+
+// Rating info command
+bot.command('rating', async (ctx) => {
+  try {
+    const ratingInfo = `📊 <b>Как работает рейтинговая система</b>
+
+⭐ <b>Базовый рейтинг:</b> <code>100 очков</code> при регистрации
+
+📈 <b>Повышение рейтинга:</b>
+• <b>Активное общение:</b> <code>+10</code> очков за сообщение
+• <b>Получение лайков:</b> <code>+5</code> очков за лайк
+• <b>Помощь новичкам:</b> <code>+20</code> очков
+• <b>Ежедневная активность:</b> <code>+15</code> очков
+
+📉 <b>Понижение рейтинга:</b>
+• <b>Спам:</b> <code>-50</code> очков
+• <b>Нарушение правил:</b> <code>-100</code> очков
+• <b>Неактивность:</b> <code>-5</code> очков в день
+
+🏆 <b>Уровни доступа:</b>
+• <code>0-200:</code> <i>Новичок</i>
+• <code>201-500:</code> <i>Активный участник</i>
+• <code>501-1000:</code> <i>Опытный пользователь</i>
+• <code>1000+:</code> <i>VIP статус</i>
+
+💎 <b>Особые привилегии:</b>
+• Приоритет в очереди на общение
+• Доступ к <i>эксклюзивным функциям</i>
+• <u>Возможность зарабатывать больше</u>
+
+<blockquote>Чем выше твой рейтинг, тем больше возможностей!</blockquote>`;
+
+    await ctx.reply(ratingInfo, { parse_mode: 'HTML' });
+    
+    // Send follow-up message about giveaways after 2 seconds
+    setTimeout(async () => {
+      try {
+        const nextThursdayDate = getNextThursday();
+        const giveawayInfo = `🎉 <b>ЕЖЕНЕДЕЛЬНЫЕ РОЗЫГРЫШИ!</b>
+
+<i>Каждый <b>четверг</b> мы разыгрываем реальные деньги среди активных участников!</i>
+
+💰 <b>Призовой фонд:</b>
+🥇 <b>1 место:</b> <code>$10</code> + VIP статус на месяц
+🥈 <b>2 место:</b> <code>$5</code> + приоритет в очереди
+🥉 <b>3 место:</b> <code>$3</code> + бонусные очки
+
+🎯 <b>Дополнительные призы:</b>
+• <code>$1</code> - 5 случайных участников
+• <code>500 очков</code> - 10 самых активных
+• <code>VIP доступ</code> - 3 новичка с лучшим рейтингом
+
+⏰ <b>Следующий розыгрыш:</b> <u>${nextThursdayDate}</u>
+
+<i>Чем активнее ты общаешься, тем больше шансов выиграть реальные деньги!</i>`;
+
+        // Create keyboard with WebApp button
+        const keyboard = Markup.keyboard([
+          [Markup.button.webApp('🚀 Начать общение', WEB_APP_URL || 'https://example.com')]
+        ]).resize().reply_markup;
+
+        await ctx.reply(giveawayInfo, { 
+          parse_mode: 'HTML',
+          reply_markup: keyboard
+        });
+      } catch (error) {
+        console.error('[rating] Ошибка при отправке информации о розыгрышах:', error);
+      }
+    }, 2000);
+    
+  } catch (err) {
+    console.error('[rating] Ошибка при обработке команды rating:', err instanceof Error ? err.message : err);
+    try { 
+      await ctx.reply('Произошла ошибка при получении информации о рейтинге');
+    } catch {}
+  }
 });
 
 // Basic text handler (echo-like)
 bot.on('text', async (ctx) => {
   const messageText = ctx.message?.text ?? '';
+  const userId = ctx.from?.id;
+  
   if (messageText.trim().length === 0) {
     return;
   }
+  
+  // Check for admin broadcast command
+  if (messageText === 'тестовая рассылка' && isAdmin(userId)) {
+    // Get dynamic stats for available spots
+    const stats = await getPrelaunchStats(userId || 0);
+    const availableSpots = stats?.totalCount || 47; // fallback to 47 if API fails
+    const totalSpots = 200;
+    
+    console.log(`[broadcast] Статистика мест: ${availableSpots} из ${totalSpots} (API: ${stats ? 'успешно' : 'ошибка'})`);
+    
+    const broadcastMessage = `🔥 <b>ЭКСКЛЮЗИВНОЕ ПРЕДЛОЖЕНИЕ!</b> 🔥
+
+Ты попал в <b>закрытый клуб</b> для избранных! 
+
+💎 <b>ЧТО ТЕБЯ ЖДЕТ:</b>
+
+🎭 <b>100% АНОНИМНОСТЬ</b> — общайся без страха, никто не узнает твою личность
+
+⚡ <b>МГНОВЕННЫЕ ЗНАКОМСТВА</b> — находи собеседников за секунды, а не месяцы
+
+💰 <b>ЗАРАБАТЫВАЙ РЕАЛЬНЫЕ ДЕНЬГИ</b> — получай до $50 в неделю просто за общение!
+
+🏆 <b>VIP СТАТУС</b> — чем активнее ты, тем больше привилегий и дохода
+
+⏰ <b>ВНИМАНИЕ!</b> Мест осталось всего <b>${availableSpots} из ${totalSpots}</b> — мы закроем прием новых участников!
+
+<b>Не упусти свой шанс попасть в элитное сообщество!</b> 👇`;
+    
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.webApp('🚀 Встать в очередь', WEB_APP_URL || 'https://example.com')],
+      [Markup.button.callback('ℹ️ Узнать, как работает рейтинг', 'rating_info')]
+    ]);
+    
+    try {
+      await ctx.reply('🚀 Начинаю тестовую рассылку...');
+      const results = await sendBroadcastWithKeyboard(broadcastMessage, FILE_ID, keyboard);
+      
+      let response = `📊 <b>Результаты рассылки:</b>\n\n`;
+      response += `✅ Успешно отправлено: ${results.success}\n`;
+      response += `❌ Ошибок: ${results.failed}\n`;
+      
+      if (results.errors.length > 0) {
+        response += `\n<b>Ошибки:</b>\n`;
+        results.errors.slice(0, 5).forEach(error => {
+          response += `• ${error}\n`;
+        });
+        if (results.errors.length > 5) {
+          response += `• ... и еще ${results.errors.length - 5} ошибок\n`;
+        }
+      }
+      
+      await ctx.reply(response, { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('[broadcast] Ошибка при выполнении рассылки:', error);
+      await ctx.reply('❌ Произошла ошибка при выполнении рассылки');
+    }
+    return;
+  }
+  
   await ctx.reply(`Вы написали: ${messageText}`);
 });
 
@@ -245,6 +594,84 @@ bot.action(/^tma_click:(A|B)$/ as unknown as RegExp, async (ctx) => {
   } catch (err) {
     console.error('[analytics] Ошибка при обработке tma_click:', err instanceof Error ? err.message : err);
     try { await ctx.answerCbQuery(); } catch {}
+  }
+});
+
+// Handle rating info callback
+bot.action('rating_info', async (ctx) => {
+  try {
+    const ratingInfo = `📊 <b>Как работает рейтинговая система</b>
+
+⭐ <b>Базовый рейтинг:</b> <code>100 очков</code> при регистрации
+
+📈 <b>Повышение рейтинга:</b>
+• <b>Активное общение:</b> <code>+10</code> очков за сообщение
+• <b>Получение лайков:</b> <code>+5</code> очков за лайк
+• <b>Помощь новичкам:</b> <code>+20</code> очков
+• <b>Ежедневная активность:</b> <code>+15</code> очков
+
+📉 <b>Понижение рейтинга:</b>
+• <b>Спам:</b> <code>-50</code> очков
+• <b>Нарушение правил:</b> <code>-100</code> очков
+• <b>Неактивность:</b> <code>-5</code> очков в день
+
+🏆 <b>Уровни доступа:</b>
+• <code>0-200:</code> <i>Новичок</i>
+• <code>201-500:</code> <i>Активный участник</i>
+• <code>501-1000:</code> <i>Опытный пользователь</i>
+• <code>1000+:</code> <i>VIP статус</i>
+
+💎 <b>Особые привилегии:</b>
+• Приоритет в очереди на общение
+• Доступ к <i>эксклюзивным функциям</i>
+• <u>Возможность зарабатывать больше</u>
+
+<blockquote>Чем выше твой рейтинг, тем больше возможностей!</blockquote>`;
+
+    await ctx.answerCbQuery();
+    await ctx.reply(ratingInfo, { parse_mode: 'HTML' });
+    
+    // Send follow-up message about giveaways after 2 seconds
+    setTimeout(async () => {
+      try {
+        const nextThursdayDate = getNextThursday();
+        const giveawayInfo = `🎉 <b>ЕЖЕНЕДЕЛЬНЫЕ РОЗЫГРЫШИ!</b>
+
+<i>Каждый <b>четверг</b> мы разыгрываем реальные деньги среди активных участников!</i>
+
+💰 <b>Призовой фонд:</b>
+🥇 <b>1 место:</b> <code>$10</code> + VIP статус на месяц
+🥈 <b>2 место:</b> <code>$5</code> + приоритет в очереди
+🥉 <b>3 место:</b> <code>$3</code> + бонусные очки
+
+🎯 <b>Дополнительные призы:</b>
+• <code>$1</code> - 5 случайных участников
+• <code>500 очков</code> - 10 самых активных
+• <code>VIP доступ</code> - 3 новичка с лучшим рейтингом
+
+⏰ <b>Следующий розыгрыш:</b> <u>${nextThursdayDate}</u>
+
+<i>Чем активнее ты общаешься, тем больше шансов выиграть реальные деньги!</i>`;
+
+        // Create keyboard with WebApp button
+        const keyboard = Markup.keyboard([
+          [Markup.button.webApp('🚀 Начать общение', WEB_APP_URL || 'https://example.com')]
+        ]).resize().reply_markup;
+
+        await ctx.reply(giveawayInfo, { 
+          parse_mode: 'HTML',
+          reply_markup: keyboard
+        });
+      } catch (error) {
+        console.error('[rating_info] Ошибка при отправке информации о розыгрышах:', error);
+      }
+    }, 2000);
+    
+  } catch (err) {
+    console.error('[rating_info] Ошибка при обработке rating_info:', err instanceof Error ? err.message : err);
+    try { 
+      await ctx.answerCbQuery('Произошла ошибка');
+    } catch {}
   }
 });
 
@@ -448,6 +875,7 @@ async function ensureBotCommands() {
   try {
     await bot.telegram.setMyCommands([
       { command: 'start', description: 'Приветствие и кнопка WebApp' },
+      { command: 'rating', description: 'Информация о рейтинговой системе' },
       { command: 'help', description: 'Краткая справка' },
     ]);
     console.log('[startup] Команды бота установлены');
