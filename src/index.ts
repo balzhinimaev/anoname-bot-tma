@@ -346,9 +346,8 @@ async function getPrelaunchStats(telegramId: number | string): Promise<{ totalCo
   }
 }
 
-// Commands
-bot.start(async (ctx) => {
-  const payload = ctx.startPayload;
+// Common start logic function
+async function handleStartLogic(ctx: Context, payload?: string) {
   if (payload) {
     console.log(`[telegram] /start payload: ${payload}`);
   }
@@ -430,6 +429,11 @@ bot.start(async (ctx) => {
     referralCode,
     campaign,
   });
+}
+
+// Commands
+bot.start(async (ctx) => {
+  await handleStartLogic(ctx, ctx.startPayload);
 });
 
 bot.help(async (ctx) => {
@@ -493,7 +497,7 @@ bot.command('rating', async (ctx) => {
 
         // Create keyboard with WebApp button
         const keyboard = Markup.keyboard([
-          [Markup.button.webApp('🚀 Начать общение', WEB_APP_URL || 'https://example.com')]
+          [Markup.button.text('🚀 Начать общение')]
         ]).resize().reply_markup;
 
         await ctx.reply(giveawayInfo, { 
@@ -519,6 +523,12 @@ bot.on('text', async (ctx) => {
   const userId = ctx.from?.id;
   
   if (messageText.trim().length === 0) {
+    return;
+  }
+  
+  // Handle WebApp button press
+  if (messageText === '🚀 Начать общение') {
+    await handleStartLogic(ctx);
     return;
   }
   
@@ -550,8 +560,24 @@ bot.on('text', async (ctx) => {
 <b>Не упусти свой шанс попасть в элитное сообщество!</b> 👇`;
     
     const keyboard = Markup.inlineKeyboard([
-      [Markup.button.webApp('🚀 Встать в очередь', WEB_APP_URL || 'https://example.com')],
-      [Markup.button.callback('ℹ️ Узнать, как работает рейтинг', 'rating_info')]
+      [
+        Markup.button.webApp(
+          "🔍 Найти собеседника",
+          WEB_APP_URL || "https://example.com"
+        ),
+      ],
+      [
+        Markup.button.webApp(
+          "🚀 Встать в очередь",
+          WEB_APP_URL || "https://example.com"
+        ),
+      ],
+      [
+        Markup.button.callback(
+          "ℹ️ Узнать, как работает рейтинг",
+          "rating_info"
+        ),
+      ],
     ]);
     
     try {
@@ -655,7 +681,7 @@ bot.action('rating_info', async (ctx) => {
 
         // Create keyboard with WebApp button
         const keyboard = Markup.keyboard([
-          [Markup.button.webApp('🚀 Начать общение', WEB_APP_URL || 'https://example.com')]
+          [Markup.button.text('🚀 Начать общение')]
         ]).resize().reply_markup;
 
         await ctx.reply(giveawayInfo, { 
