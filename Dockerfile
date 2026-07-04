@@ -24,6 +24,10 @@ RUN npm ci --only=production && npm cache clean --force
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
+# Каталог для персистентных данных (user_ids.txt для рассылки) — монтируется volume.
+# Владелец nodejs, чтобы свежий named volume унаследовал права на запись.
+RUN mkdir -p /data && chown nodejs:nodejs /data
+
 # Change ownership of the app directory
 RUN chown -R nodejs:nodejs /app
 USER nodejs
@@ -35,5 +39,5 @@ EXPOSE $PORT
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get(\`http://localhost:\${process.env.PORT || 7777}/healthz\`, (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
 
-# Start the application
-CMD ["npm", "start"]
+# Start the application напрямую через node — надёжный проброс SIGTERM.
+CMD ["node", "dist/index.js"]

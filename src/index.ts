@@ -33,8 +33,10 @@ const ENABLE_LEAD_TRACKING = (process.env.ENABLE_LEAD_TRACKING || 'true').toLowe
 const AB_SPLIT_A = Math.max(0, Math.min(100, Number(process.env.AB_SPLIT_A ?? '50')));
 const ENABLE_ANALYTICS = (process.env.ENABLE_ANALYTICS || 'true').toLowerCase() === 'true';
 
-// User IDs file path
-const USER_IDS_FILE = path.join(process.cwd(), 'user_ids.txt');
+// User IDs file path — по умолчанию в cwd, но переопределяется через env
+// (в проде указывает на смонтированный volume /data, чтобы список рассылки
+// не стирался при пересборке контейнера).
+const USER_IDS_FILE = process.env.USER_IDS_FILE || path.join(process.cwd(), 'user_ids.txt');
 
 if (!BOT_TOKEN) {
   console.error('[startup] BOT_TOKEN не задан. Укажите BOT_TOKEN в .env');
