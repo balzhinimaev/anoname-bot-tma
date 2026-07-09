@@ -922,7 +922,19 @@ app.post(
         return res.status(503).json({ error: "BOT_TOKEN not configured" });
       }
       const { itemKey, starCount } = req.body || {};
-      if (itemKey !== "premium") {
+      // Ключи согласованы с PURCHASE_ITEMS/STARS_PRICES в anoname-api;
+      // сумма (starCount) приходит из API, где берётся из серверного прайса.
+      const KNOWN_ITEMS: Record<string, { title: string; description: string; label: string }> = {
+        premium: { title: "Premium подписка", description: "Доступ к Premium функциям.", label: "Premium" },
+        premium_1day: { title: "Premium на 1 день", description: "Безлимитный поиск, фильтры и приоритет на 24 часа.", label: "Premium 1 день" },
+        premium_7days: { title: "Premium на 7 дней", description: "Безлимитный поиск, фильтры и приоритет на неделю.", label: "Premium 7 дней" },
+        premium_30days: { title: "Premium на 30 дней", description: "Безлимитный поиск, фильтры и приоритет на месяц.", label: "Premium 30 дней" },
+        premium_forever: { title: "Premium навсегда", description: "Все возможности Premium без ограничения срока.", label: "Premium навсегда" },
+        boosts_1: { title: "1 буст", description: "Приоритет в поиске на 30 минут.", label: "Буст ×1" },
+        boosts_5: { title: "5 бустов", description: "Приоритет в поиске, 5 активаций по 30 минут.", label: "Бусты ×5" },
+      };
+      const item = KNOWN_ITEMS[String(itemKey)];
+      if (!item) {
         return res.status(400).json({ error: "Unsupported itemKey" });
       }
       const stars = Number(starCount);
@@ -938,9 +950,9 @@ app.post(
         ts: Date.now(),
       };
 
-      const title = "Premium подписка";
-      const description = "Доступ к Premium функциям.";
-      const prices = [{ label: "Premium", amount: stars }];
+      const title = item.title;
+      const description = item.description;
+      const prices = [{ label: item.label, amount: stars }];
 
       let url: string;
       try {
